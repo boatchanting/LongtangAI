@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>弄语者</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #8b5e3c 0%, #b29169 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100vh;
+      color: #333;
+    }
+
+    .navbar {
+      width: 100%;
+      padding: 10px 20px;
+      background-color: #a67c52aa;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .navbar h1 {
+      margin: 0;
+      font-size: 1.5em;
+      color: #fff;
+      font-weight: bold;
+    }
+
+    .chat-window {
+      flex-grow: 1;
+      max-width: 600px;
+      width: 100%;
+      margin-top: 20px;
+      background-color: #f1e1d6aa;
+      border-radius: 15px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    }
+
+    .chat-history {
+      flex-grow: 1;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .input-container {
+      display: flex;
+      padding: 15px;
+      border-top: 1px solid #ddd;
+      border-radius: 0 0 15px 15px;
+      background-color: #d7c2aaff;
+    }
+
+    #user-input {
+      flex-grow: 1;
+      border: 1px solid #ddd;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 1em;
+      margin-right: 10px;
+    }
+
+    #send-btn, #reset-btn {
+      background-color: #7b5131;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      color: #fff;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.3s, transform 0.1s;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    #send-btn:hover, #reset-btn:hover {
+      background-color: #a67c52;
+      transform: translateY(-2px);
+    }
+
+    .user-message, .bot-message {
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      max-width: 100%;
+      font-size: 1em;
+    }
+
+    .user-message {
+      background-color: #d4b89c;
+      align-self: flex-end;
+    }
+
+    .bot-message {
+      background-color: #f1e1d6;
+      align-self: flex-start;
+    }
+  </style>
+</head>
+<body>
+  <h2>弄语者</h2>
+  <div class="chat-window">
+    <div class="chat-history" id="chat-history"></div>
+    <div class="input-container">
+      <textarea id="user-input" rows="2" placeholder="问问我有关弄堂文化的问题吧..."></textarea>
+      <button id="send-btn">发送</button>
+      <button id="reset-btn">重置</button>
+    </div>
+  </div>
+
+  <script>
+    const sendBtn = document.getElementById('send-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const userInput = document.getElementById('user-input');
+    const chatHistory = document.getElementById('chat-history');
+
+    // 初始加载时显示的预设消息
+    const presetMessage = `
+      <div class="bot-message">
+        <span>弄语者:</span> 您好，我叫弄语者，是弄堂文化的智能解答者，您有什么关于弄堂文化的问题，欢迎来问我哦！
+      </div>
+    `;
+    chatHistory.innerHTML = presetMessage;
+
+    sendBtn.addEventListener('click', sendMessage);
+    resetBtn.addEventListener('click', resetChat);
+
+    function sendMessage() {
+      const message = userInput.value.trim();
+      if (message) {
+        chatHistory.innerHTML += `<div class="user-message"><span>你:</span> ${message}</div>`;
+        userInput.value = '';
+        userInput.focus();
+
+        fetch('/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ 'question': message })
+        }).then(response => {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let responseText = '';
+          let lastResponseLength = 0;
+
+          function processText({ done, value }) {
+            if (done) {
+              if (responseText.length > lastResponseLength) {
+                chatHistory.innerHTML += `<div class="bot-message"><span>弄语者:</span> ${responseText}</div>`;
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+              }
+              return;
+            }
+
+            let chunk = decoder.decode(value).trim();
+            chunk = chunk.replace(/^data:\s*/g, '');
+
+            responseText += chunk;
+
+            if (responseText.length > lastResponseLength) {
+              const botMessage = document.querySelector('.bot-message:last-child');
+              if (botMessage) {
+                botMessage.innerHTML = `<span>弄语者:</span> ${responseText}`;
+              } else {
+                chatHistory.innerHTML += `<div class="bot-message"><span>弄语者:</span> ${responseText}</div>`;
+              }
+            }
+
+            lastResponseLength = responseText.length;
+
+            reader.read().then(processText);
+          }
+
+          reader.read().then(processText);
+        });
+      }
+    }
+
+    function resetChat() {
+      fetch('/reset', { method: 'POST' }).then(() => {
+        chatHistory.innerHTML = presetMessage;
+      });
+    }
+
+    userInput.addEventListener('keydown', function(event) {
+  if (event.key === 'Enter') {
+    if (event.shiftKey) {
+      // 如果按下了 Shift + Enter，则插入换行符
+      const cursorPosition = userInput.selectionStart;
+      userInput.value = userInput.value.slice(0, cursorPosition) + '\n' + userInput.value.slice(cursorPosition);
+      userInput.selectionStart = cursorPosition + 1;
+      userInput.selectionEnd = cursorPosition + 1;
+      event.preventDefault();  // 防止光标移动到下一行外
+    } else {
+      // 否则正常发送消息
+      sendMessage();
+      event.preventDefault();  // 阻止默认的Enter换行行为
+    }
+  }
+});
+  </script>
+</body>
+</html>
