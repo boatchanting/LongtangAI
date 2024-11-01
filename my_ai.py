@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, session, Response
+import jieba
 import requests
 import json
 import os
@@ -14,6 +15,8 @@ Session(app)
 # 预设提示词
 PRESET_PROMPT = """"""
 
+# 加载自定义字典
+jieba.load_userdict('custom_dict.txt')
 
 # 将对话历史保存到 JSON 文件
 def save_to_json(user_input, model_output):
@@ -78,11 +81,26 @@ def stream_response():
     dialog_history = session.get('dialog_history', load_from_json())  # 从JSON文件加载历史记录
     context_tokens = session.get('context_tokens', None)
 
+    # 查找知识库中的相关信息
+    kb_information = search_knowledge_base(user_input)
+    
+    # 构建最终的提示词
+    if kb_information:
+        PRESET_PROMPT_WITH_KB = f"{PRESET_PROMPT}\nKnowledge Base Information:\n{kb_information}\n"
+    else:
+        PRESET_PROMPT_WITH_KB = PRESET_PROMPT
+
+    # 调试用：打印知识库的搜索结果
+    if kb_information:
+        print(f"Knowledge Base Information: {kb_information}")
+    else:
+        print("No knowledge base information found.")
+
     # 将用户输入添加到对话历史
     dialog_history.append(f"You: {user_input}")
     
-    # 在用户输入之前加入预设的提示词
-    combined_prompt = PRESET_PROMPT + "\n" + "\n".join(dialog_history)
+    # 在用户输入之前加入预设的提示词（包括可能的知识库信息）
+    combined_prompt = PRESET_PROMPT_WITH_KB + "\n" + "\n".join(dialog_history)
 
     return Response(generate_response_stream(combined_prompt, context_tokens), content_type='text/event-stream')
 
@@ -103,5 +121,35 @@ def reset():
     
     return render_template('my_ai.html')
 
+def search_knowledge_base(query):
+    """从知识库中搜索与查询相关的信息"""
+    current_script_path = os.path.dirname(os.path.abspath(__file__))
+    knowledge_base_path = os.path.join(current_script_path, 'knowledge_base.json')
+
+    # 读取知识库文件
+    with open(knowledge_base_path, 'r', encoding='utf-8') as file:
+        knowledge_base = json.load(file)
+    
+    # 使用 jieba 对查询进行分词
+    query_words = set(jieba.lcut(query))
+
+    print(f"User input words: {query_words}")
+    
+    # 搜索与查询匹配的知识库条目
+    for entry in knowledge_base:
+        # 检查知识库条目的 id 是否在查询单词中
+        if entry['id'] in query_words:
+            return entry['information']
+    
+    return None  # 如果没有找到匹配项，返回None
+# 测试用代码
+"""
+query = "我想询问有关东方明珠的故事"
+result = search_knowledge_base(query)
+print(result)
+"""
 if __name__ == '__main__':
     app.run(debug=True)
+
+
+
